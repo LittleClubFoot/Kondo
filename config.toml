@@ -1,0 +1,4 @@
+[directories]
+images = "~/Pictures"
+documents = "~/Documents"
+audio = "~/Music"

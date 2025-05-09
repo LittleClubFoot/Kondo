@@ -2,6 +2,7 @@ use clap::Parser;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use toml::Value;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "File organizer by type")]
@@ -10,9 +11,9 @@ struct Args {
     #[arg(short, long)]
     source: String,
 
-    /// Base destination directory
+    /// Path to the config.toml file
     #[arg(short, long)]
-    destination: String,
+    config: String,
 }
 
 // Define file type mappings
@@ -53,7 +54,19 @@ fn get_extension(file_path: &Path) -> Option<String> {
 
 fn organize_files(args: Args) -> std::io::Result<()> {
     let source_dir = PathBuf::from(args.source);
-    let base_dest_dir = PathBuf::from(args.destination);
+    let config_path = PathBuf::from(args.config);
+
+    // Read and parse the config.toml file
+    let config_content = fs::read_to_string(config_path)?;
+    let config: Value = config_content.parse::<Value>()
+        .expect("Failed to parse the config file");
+
+    // Extract output directories from the config
+    let directories = config.get("directories").expect("Missing 'directories' section in config");
+    let images_dir = PathBuf::from(directories.get("images").expect("Missing 'images' key in config").as_str().unwrap());
+    let documents_dir = PathBuf::from(directories.get("documents").expect("Missing 'documents' key in config").as_str().unwrap());
+    let audio_dir = PathBuf::from(directories.get("audio").expect("Missing 'audio' key in config").as_str().unwrap());
+
     let mappings = get_file_type_mappings();
 
     // Check if source directory exists
@@ -61,10 +74,10 @@ fn organize_files(args: Args) -> std::io::Result<()> {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             format!("Source directory does not exist: {}", source_dir.display()),
-        ))
+        ));
     }
 
-   for entry in fs::read_dir(source_dir)? {
+    for entry in fs::read_dir(source_dir)? {
         let entry = entry?;
         let path = entry.path();
 
@@ -76,9 +89,14 @@ fn organize_files(args: Args) -> std::io::Result<()> {
         if let Some(extension) = get_extension(&path) {
             // Find matching category for the file extension
             for (extensions, category) in &mappings {
-                if extensions.iter().any(|&ext| ext == extension ) {
-                    let dest_dir = base_dest_dir.join(category);
-                    move_file(&path, &dest_dir)?;
+                if extensions.iter().any(|&ext| ext == extension) {
+                    let dest_dir = match *category {
+                        "Images" => &images_dir,
+                        "Documents" => &documents_dir,
+                        "Audio" => &audio_dir,
+                        _ => continue,
+                    };
+                    move_file(&path, dest_dir)?;
                     break;
                 }
             }
@@ -88,7 +106,7 @@ fn organize_files(args: Args) -> std::io::Result<()> {
     Ok(())
 }
 
-fn main () {
+fn main() {
     let args = Args::parse();
 
     if let Err(e) = organize_files(args) {
