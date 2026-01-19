@@ -1,9 +1,8 @@
 use clap::{Parser, ValueEnum};
-use std::collections::HashMap;
+use serde::Deserialize;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use toml::Value;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum CollisionStrategy {
@@ -13,6 +12,18 @@ enum CollisionStrategy {
     Skip,
     /// Prompt user for each collision
     Prompt,
+}
+
+#[derive(Debug, Deserialize)]
+struct Config {
+    categories: Vec<FileCategory>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FileCategory {
+    name: String,
+    extensions: Vec<String>,
+    destination: String,
 }
 
 #[derive(Parser, Debug)]
@@ -35,20 +46,28 @@ struct Args {
     dry_run: bool,
 }
 
-// Define file type mappings
-fn get_file_type_mappings() -> HashMap<Vec<&'static str>, &'static str> {
-    let mut mappings = HashMap::new();
+impl Config {
+    fn from_file(path: &Path) -> std::io::Result<Self> {
+        let content = fs::read_to_string(path).map_err(|e| {
+            std::io::Error::new(
+                e.kind(),
+                format!("Failed to read config file '{}': {}", path.display(), e),
+            )
+        })?;
 
-    // Images
-    mappings.insert(vec!["jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp"], "Images");
+        toml::from_str(&content).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Failed to parse config file '{}': {}", path.display(), e),
+            )
+        })
+    }
 
-    // Documents
-    mappings.insert(vec!["pdf", "doc", "docx", "txt", "rtf", "odt", "xls", "xlsx", "ppt", "pptx"], "Documents");
-
-    // Audio
-    mappings.insert(vec!["mp3", "wav", "ogg", "flac", "aac", "wma"], "Audio");
-
-    mappings
+    fn find_category_for_extension(&self, extension: &str) -> Option<&FileCategory> {
+        self.categories
+            .iter()
+            .find(|cat| cat.extensions.iter().any(|ext| ext == extension))
+    }
 }
 
 fn find_available_filename(base_path: &Path) -> PathBuf {
@@ -194,66 +213,16 @@ fn organize_files(args: Args) -> std::io::Result<()> {
         println!("=== DRY RUN MODE: No files will be moved ===\n");
     }
 
-    // Read and parse the config.toml file
-    let config_content = fs::read_to_string(&config_path).map_err(|e| {
-        std::io::Error::new(
-            e.kind(),
-            format!("Failed to read config file '{}': {}", config_path.display(), e),
-        )
-    })?;
+    // Load and parse config with type safety
+    let config = Config::from_file(&config_path)?;
 
-    let config: Value = config_content.parse::<Value>().map_err(|e| {
-        std::io::Error::new(
+    // Validate config has at least one category
+    if config.categories.is_empty() {
+        return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Failed to parse config file '{}': {}", config_path.display(), e),
-        )
-    })?;
-
-    // Extract output directories from the config
-    let directories = config.get("directories").ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Config file is missing required 'directories' section",
-        )
-    })?;
-
-    let images_dir = expand_tilde(
-        directories
-            .get("images")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Config is missing 'directories.images' path or it's not a string",
-                )
-            })?,
-    );
-
-    let documents_dir = expand_tilde(
-        directories
-            .get("documents")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Config is missing 'directories.documents' path or it's not a string",
-                )
-            })?,
-    );
-
-    let audio_dir = expand_tilde(
-        directories
-            .get("audio")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Config is missing 'directories.audio' path or it's not a string",
-                )
-            })?,
-    );
-
-    let mappings = get_file_type_mappings();
+            "Config file must contain at least one category",
+        ));
+    }
 
     // Check if source directory exists
     if !source_dir.exists() {
@@ -263,6 +232,7 @@ fn organize_files(args: Args) -> std::io::Result<()> {
         ));
     }
 
+    // Process all files in source directory
     for entry in fs::read_dir(source_dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -272,19 +242,11 @@ fn organize_files(args: Args) -> std::io::Result<()> {
             continue;
         }
 
+        // Get file extension and find matching category
         if let Some(extension) = get_extension(&path) {
-            // Find matching category for the file extension
-            for (extensions, category) in &mappings {
-                if extensions.iter().any(|&ext| ext == extension) {
-                    let dest_dir = match *category {
-                        "Images" => &images_dir,
-                        "Documents" => &documents_dir,
-                        "Audio" => &audio_dir,
-                        _ => continue,
-                    };
-                    move_file(&path, dest_dir, &args.collision, args.dry_run)?;
-                    break;
-                }
+            if let Some(category) = config.find_category_for_extension(&extension) {
+                let dest_dir = expand_tilde(&category.destination);
+                move_file(&path, &dest_dir, &args.collision, args.dry_run)?;
             }
         }
     }
