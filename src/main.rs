@@ -154,15 +154,63 @@ fn organize_files(args: Args) -> std::io::Result<()> {
     let config_path = expand_tilde(&args.config);
 
     // Read and parse the config.toml file
-    let config_content = fs::read_to_string(config_path)?;
-    let config: Value = config_content.parse::<Value>()
-        .expect("Failed to parse the config file");
+    let config_content = fs::read_to_string(&config_path).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!("Failed to read config file '{}': {}", config_path.display(), e),
+        )
+    })?;
+
+    let config: Value = config_content.parse::<Value>().map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Failed to parse config file '{}': {}", config_path.display(), e),
+        )
+    })?;
 
     // Extract output directories from the config
-    let directories = config.get("directories").expect("Missing 'directories' section in config");
-    let images_dir = expand_tilde(directories.get("images").expect("Missing 'images' key in config").as_str().unwrap());
-    let documents_dir = expand_tilde(directories.get("documents").expect("Missing 'documents' key in config").as_str().unwrap());
-    let audio_dir = expand_tilde(directories.get("audio").expect("Missing 'audio' key in config").as_str().unwrap());
+    let directories = config.get("directories").ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Config file is missing required 'directories' section",
+        )
+    })?;
+
+    let images_dir = expand_tilde(
+        directories
+            .get("images")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Config is missing 'directories.images' path or it's not a string",
+                )
+            })?,
+    );
+
+    let documents_dir = expand_tilde(
+        directories
+            .get("documents")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Config is missing 'directories.documents' path or it's not a string",
+                )
+            })?,
+    );
+
+    let audio_dir = expand_tilde(
+        directories
+            .get("audio")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Config is missing 'directories.audio' path or it's not a string",
+                )
+            })?,
+    );
 
     let mappings = get_file_type_mappings();
 
