@@ -4,13 +4,13 @@ A simple, safe, and configurable file organizer inspired by Marie Kondo's tidyin
 
 ## Features
 
-- 🎯 **Config-driven** - Define your own file categories and destinations
-- 🛡️ **Safe** - Multiple collision handling strategies to prevent data loss
-- 👀 **Dry-run mode** - Preview changes before executing
-- 🚀 **Cross-filesystem support** - Move files across different partitions
-- 🏠 **Tilde expansion** - Use `~/` paths in config and arguments
-- ⚡ **Fast** - Written in Rust for performance and safety
-- 📝 **Helpful errors** - Clear, actionable error messages
+- **Config-driven** - Define your own file categories and destinations
+- **Safe** - Multiple collision handling strategies to prevent data loss
+- **Dry-run mode** - Preview changes before executing
+- **Cross-filesystem support** - Move files across different partitions
+- **Tilde expansion** - Use `~/` paths in config and arguments
+- **Fast** - Written in Rust for performance and safety
+- **Helpful errors** - Clear, actionable error messages
 
 ## Installation
 

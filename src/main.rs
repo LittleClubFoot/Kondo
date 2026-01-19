@@ -55,12 +55,82 @@ impl Config {
             )
         })?;
 
-        toml::from_str(&content).map_err(|e| {
+        let config: Config = toml::from_str(&content).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("Failed to parse config file '{}': {}", path.display(), e),
             )
-        })
+        })?;
+
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn validate(&self) -> std::io::Result<()> {
+        // Check if config has at least one category
+        if self.categories.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Config must contain at least one category",
+            ));
+        }
+
+        // Validate each category
+        for (idx, category) in self.categories.iter().enumerate() {
+            // Check category name is not empty
+            if category.name.trim().is_empty() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Category {} has an empty name", idx + 1),
+                ));
+            }
+
+            // Check extensions list is not empty
+            if category.extensions.is_empty() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Category '{}' has no extensions defined", category.name),
+                ));
+            }
+
+            // Check for empty extensions
+            for ext in &category.extensions {
+                if ext.trim().is_empty() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("Category '{}' contains an empty extension", category.name),
+                    ));
+                }
+            }
+
+            // Check destination is not empty
+            if category.destination.trim().is_empty() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Category '{}' has an empty destination path", category.name),
+                ));
+            }
+        }
+
+        // Check for duplicate extensions across categories
+        let mut seen_extensions = std::collections::HashMap::new();
+        for category in &self.categories {
+            for ext in &category.extensions {
+                let ext_lower = ext.to_lowercase();
+                if let Some(existing_category) = seen_extensions.get(&ext_lower) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!(
+                            "Extension '{}' is defined in both '{}' and '{}' categories. Each extension can only belong to one category.",
+                            ext, existing_category, category.name
+                        ),
+                    ));
+                }
+                seen_extensions.insert(ext_lower, &category.name);
+            }
+        }
+
+        Ok(())
     }
 
     fn find_category_for_extension(&self, extension: &str) -> Option<&FileCategory> {
@@ -213,16 +283,8 @@ fn organize_files(args: Args) -> std::io::Result<()> {
         println!("=== DRY RUN MODE: No files will be moved ===\n");
     }
 
-    // Load and parse config with type safety
+    // Load and parse config with type safety (validation happens automatically)
     let config = Config::from_file(&config_path)?;
-
-    // Validate config has at least one category
-    if config.categories.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Config file must contain at least one category",
-        ));
-    }
 
     // Check if source directory exists
     if !source_dir.exists() {
