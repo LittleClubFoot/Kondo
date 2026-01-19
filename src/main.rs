@@ -26,6 +26,25 @@ struct FileCategory {
     destination: String,
 }
 
+#[derive(Debug, Default)]
+struct Statistics {
+    total_files: usize,
+    moved: usize,
+    skipped: usize,
+    no_category: usize,
+}
+
+impl Statistics {
+    fn print_summary(&self, dry_run: bool) {
+        let mode = if dry_run { "[DRY RUN] " } else { "" };
+        println!("\n{}Summary:", mode);
+        println!("  Total files processed: {}", self.total_files);
+        println!("  Files moved: {}", self.moved);
+        println!("  Files skipped (collision): {}", self.skipped);
+        println!("  Files with no category: {}", self.no_category);
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about = "File organizer by type")]
 struct Args {
@@ -173,7 +192,12 @@ fn prompt_user_action(file_name: &str) -> std::io::Result<String> {
     Ok(response.trim().to_lowercase())
 }
 
-fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy, dry_run: bool) -> std::io::Result<()> {
+enum MoveResult {
+    Moved,
+    Skipped,
+}
+
+fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy, dry_run: bool) -> std::io::Result<MoveResult> {
     // Create destination directory if it doesn't exist (skip in dry-run mode)
     if !dry_run {
         fs::create_dir_all(destination)?;
@@ -200,12 +224,12 @@ fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy, dr
                     } else {
                         println!("Skipped: {} (already exists)", dest_path.display());
                     }
-                    return Ok(());
+                    return Ok(MoveResult::Skipped);
                 }
                 CollisionStrategy::Prompt => {
                     if dry_run {
                         println!("[DRY RUN] File exists, would prompt: {}", file_name.to_str().unwrap());
-                        return Ok(());
+                        return Ok(MoveResult::Moved);
                     }
                     let action = prompt_user_action(file_name.to_str().unwrap())?;
                     match action.as_str() {
@@ -216,7 +240,7 @@ fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy, dr
                         }
                         "s" | "skip" => {
                             println!("Skipped: {}", file_name.to_str().unwrap());
-                            return Ok(());
+                            return Ok(MoveResult::Skipped);
                         }
                         "o" | "overwrite" => {
                             println!("Overwriting: {}", file_name.to_str().unwrap());
@@ -224,7 +248,7 @@ fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy, dr
                         }
                         _ => {
                             println!("Invalid input. Skipping file.");
-                            return Ok(());
+                            return Ok(MoveResult::Skipped);
                         }
                     }
                 }
@@ -256,7 +280,7 @@ fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy, dr
         }
     }
 
-    Ok(())
+    Ok(MoveResult::Moved)
 }
 
 fn expand_tilde(path: &str) -> PathBuf {
@@ -312,6 +336,8 @@ fn organize_files(args: Args) -> std::io::Result<()> {
         ));
     }
 
+    let mut stats = Statistics::default();
+
     // Process all files in source directory
     for entry in fs::read_dir(source_dir)? {
         let entry = entry?;
@@ -322,15 +348,25 @@ fn organize_files(args: Args) -> std::io::Result<()> {
             continue;
         }
 
+        stats.total_files += 1;
+
         // Get file extension and find matching category
         if let Some(extension) = get_extension(&path) {
             if let Some(category) = config.find_category_for_extension(&extension) {
                 let dest_dir = expand_tilde(&category.destination);
-                move_file(&path, &dest_dir, &args.collision, args.dry_run)?;
+                match move_file(&path, &dest_dir, &args.collision, args.dry_run)? {
+                    MoveResult::Moved => stats.moved += 1,
+                    MoveResult::Skipped => stats.skipped += 1,
+                }
+            } else {
+                stats.no_category += 1;
             }
+        } else {
+            stats.no_category += 1;
         }
     }
 
+    stats.print_summary(args.dry_run);
     Ok(())
 }
 
