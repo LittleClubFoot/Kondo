@@ -29,6 +29,10 @@ struct Args {
     /// How to handle file name collisions
     #[arg(long, value_enum, default_value = "rename")]
     collision: CollisionStrategy,
+
+    /// Preview changes without moving files
+    #[arg(long)]
+    dry_run: bool,
 }
 
 // Define file type mappings
@@ -80,9 +84,11 @@ fn prompt_user_action(file_name: &str) -> std::io::Result<String> {
     Ok(response.trim().to_lowercase())
 }
 
-fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy) -> std::io::Result<()> {
-    // Create destination directory if it doesn't exist
-    fs::create_dir_all(destination)?;
+fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy, dry_run: bool) -> std::io::Result<()> {
+    // Create destination directory if it doesn't exist (skip in dry-run mode)
+    if !dry_run {
+        fs::create_dir_all(destination)?;
+    }
 
     if let Some(file_name) = source.file_name() {
         let dest_path = destination.join(file_name);
@@ -92,14 +98,26 @@ fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy) ->
             match strategy {
                 CollisionStrategy::Rename => {
                     let new_path = find_available_filename(&dest_path);
-                    println!("Collision detected: renaming to {}", new_path.file_name().unwrap().to_str().unwrap());
+                    if dry_run {
+                        println!("[DRY RUN] Would rename due to collision: {}", new_path.file_name().unwrap().to_str().unwrap());
+                    } else {
+                        println!("Collision detected: renaming to {}", new_path.file_name().unwrap().to_str().unwrap());
+                    }
                     new_path
                 }
                 CollisionStrategy::Skip => {
-                    println!("Skipped: {} (already exists)", dest_path.display());
+                    if dry_run {
+                        println!("[DRY RUN] Would skip: {} (already exists)", dest_path.display());
+                    } else {
+                        println!("Skipped: {} (already exists)", dest_path.display());
+                    }
                     return Ok(());
                 }
                 CollisionStrategy::Prompt => {
+                    if dry_run {
+                        println!("[DRY RUN] File exists, would prompt: {}", file_name.to_str().unwrap());
+                        return Ok(());
+                    }
                     let action = prompt_user_action(file_name.to_str().unwrap())?;
                     match action.as_str() {
                         "r" | "rename" => {
@@ -126,8 +144,12 @@ fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy) ->
             dest_path
         };
 
-        fs::rename(source, &final_dest)?;
-        println!("Moved: {} -> {}", source.display(), final_dest.display());
+        if dry_run {
+            println!("[DRY RUN] Would move: {} -> {}", source.display(), final_dest.display());
+        } else {
+            fs::rename(source, &final_dest)?;
+            println!("Moved: {} -> {}", source.display(), final_dest.display());
+        }
     }
 
     Ok(())
@@ -152,6 +174,10 @@ fn get_extension(file_path: &Path) -> Option<String> {
 fn organize_files(args: Args) -> std::io::Result<()> {
     let source_dir = expand_tilde(&args.source);
     let config_path = expand_tilde(&args.config);
+
+    if args.dry_run {
+        println!("=== DRY RUN MODE: No files will be moved ===\n");
+    }
 
     // Read and parse the config.toml file
     let config_content = fs::read_to_string(&config_path).map_err(|e| {
@@ -241,7 +267,7 @@ fn organize_files(args: Args) -> std::io::Result<()> {
                         "Audio" => &audio_dir,
                         _ => continue,
                     };
-                    move_file(&path, dest_dir, &args.collision)?;
+                    move_file(&path, dest_dir, &args.collision, args.dry_run)?;
                     break;
                 }
             }
