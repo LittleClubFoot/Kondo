@@ -378,3 +378,201 @@ fn main() {
         std::process::exit(1);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn test_get_extension() {
+        assert_eq!(get_extension(Path::new("file.txt")), Some("txt".to_string()));
+        assert_eq!(get_extension(Path::new("file.PDF")), Some("pdf".to_string()));
+        assert_eq!(get_extension(Path::new("file.tar.gz")), Some("gz".to_string()));
+        assert_eq!(get_extension(Path::new("file")), None);
+        assert_eq!(get_extension(Path::new(".gitignore")), None);
+    }
+
+    #[test]
+    fn test_expand_tilde_with_home() {
+        let result = expand_tilde("~/test/path");
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(result, home.join("test/path"));
+        }
+    }
+
+    #[test]
+    fn test_expand_tilde_without_tilde() {
+        let path = "/absolute/path";
+        assert_eq!(expand_tilde(path), PathBuf::from(path));
+
+        let relative = "relative/path";
+        assert_eq!(expand_tilde(relative), PathBuf::from(relative));
+    }
+
+    #[test]
+    fn test_config_validation_empty_categories() {
+        let config = Config { categories: vec![] };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validation_empty_name() {
+        let config = Config {
+            categories: vec![FileCategory {
+                name: "   ".to_string(),
+                extensions: vec!["txt".to_string()],
+                destination: "~/test".to_string(),
+            }],
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validation_empty_extensions() {
+        let config = Config {
+            categories: vec![FileCategory {
+                name: "Test".to_string(),
+                extensions: vec![],
+                destination: "~/test".to_string(),
+            }],
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validation_empty_destination() {
+        let config = Config {
+            categories: vec![FileCategory {
+                name: "Test".to_string(),
+                extensions: vec!["txt".to_string()],
+                destination: "  ".to_string(),
+            }],
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validation_duplicate_extensions() {
+        let config = Config {
+            categories: vec![
+                FileCategory {
+                    name: "Category1".to_string(),
+                    extensions: vec!["txt".to_string()],
+                    destination: "~/test1".to_string(),
+                },
+                FileCategory {
+                    name: "Category2".to_string(),
+                    extensions: vec!["TXT".to_string()], // Case insensitive duplicate
+                    destination: "~/test2".to_string(),
+                },
+            ],
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_config_validation_valid() {
+        let config = Config {
+            categories: vec![
+                FileCategory {
+                    name: "Images".to_string(),
+                    extensions: vec!["jpg".to_string(), "png".to_string()],
+                    destination: "~/Pictures".to_string(),
+                },
+                FileCategory {
+                    name: "Documents".to_string(),
+                    extensions: vec!["pdf".to_string(), "doc".to_string()],
+                    destination: "~/Documents".to_string(),
+                },
+            ],
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_find_category_for_extension() {
+        let config = Config {
+            categories: vec![
+                FileCategory {
+                    name: "Images".to_string(),
+                    extensions: vec!["jpg".to_string(), "png".to_string()],
+                    destination: "~/Pictures".to_string(),
+                },
+                FileCategory {
+                    name: "Documents".to_string(),
+                    extensions: vec!["pdf".to_string(), "doc".to_string()],
+                    destination: "~/Documents".to_string(),
+                },
+            ],
+        };
+
+        assert!(config.find_category_for_extension("jpg").is_some());
+        assert_eq!(
+            config.find_category_for_extension("jpg").unwrap().name,
+            "Images"
+        );
+        assert!(config.find_category_for_extension("pdf").is_some());
+        assert!(config.find_category_for_extension("mp3").is_none());
+    }
+
+    #[test]
+    fn test_find_available_filename() {
+        use std::fs;
+
+        let temp_dir = std::env::temp_dir().join("kondo_test");
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let test_file = temp_dir.join("test.txt");
+        fs::write(&test_file, "test").unwrap();
+
+        let available = find_available_filename(&test_file);
+        assert_eq!(available, temp_dir.join("test (1).txt"));
+
+        // Create the first collision file
+        fs::write(&available, "test").unwrap();
+        let available2 = find_available_filename(&test_file);
+        assert_eq!(available2, temp_dir.join("test (2).txt"));
+
+        // Cleanup
+        fs::remove_dir_all(&temp_dir).unwrap();
+    }
+
+    #[test]
+    fn test_config_from_toml() {
+        let toml_content = r#"
+[[categories]]
+name = "Images"
+extensions = ["jpg", "png"]
+destination = "~/Pictures"
+
+[[categories]]
+name = "Documents"
+extensions = ["pdf", "txt"]
+destination = "~/Documents"
+"#;
+
+        let temp_dir = std::env::temp_dir().join("kondo_test_config");
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let config_file = temp_dir.join("test_config.toml");
+        let mut file = fs::File::create(&config_file).unwrap();
+        file.write_all(toml_content.as_bytes()).unwrap();
+
+        let config = Config::from_file(&config_file).unwrap();
+        assert_eq!(config.categories.len(), 2);
+        assert_eq!(config.categories[0].name, "Images");
+        assert_eq!(config.categories[0].extensions.len(), 2);
+
+        fs::remove_dir_all(&temp_dir).unwrap();
+    }
+
+    #[test]
+    fn test_statistics_default() {
+        let stats = Statistics::default();
+        assert_eq!(stats.total_files, 0);
+        assert_eq!(stats.moved, 0);
+        assert_eq!(stats.skipped, 0);
+        assert_eq!(stats.no_category, 0);
+    }
+}
