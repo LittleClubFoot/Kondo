@@ -1,8 +1,19 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use std::collections::HashMap;
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use toml::Value;
+
+#[derive(Debug, Clone, ValueEnum)]
+enum CollisionStrategy {
+    /// Rename file with counter (e.g., file (1).txt)
+    Rename,
+    /// Skip file if it already exists
+    Skip,
+    /// Prompt user for each collision
+    Prompt,
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "File organizer by type")]
@@ -14,6 +25,10 @@ struct Args {
     /// Path to the config.toml file
     #[arg(short, long)]
     config: String,
+
+    /// How to handle file name collisions
+    #[arg(long, value_enum, default_value = "rename")]
+    collision: CollisionStrategy,
 }
 
 // Define file type mappings
@@ -32,14 +47,87 @@ fn get_file_type_mappings() -> HashMap<Vec<&'static str>, &'static str> {
     mappings
 }
 
-fn move_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+fn find_available_filename(base_path: &Path) -> PathBuf {
+    if !base_path.exists() {
+        return base_path.to_path_buf();
+    }
+
+    let parent = base_path.parent().unwrap();
+    let file_stem = base_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let extension = base_path.extension().and_then(|s| s.to_str());
+
+    let mut counter = 1;
+    loop {
+        let new_name = match extension {
+            Some(ext) => format!("{} ({}).{}", file_stem, counter, ext),
+            None => format!("{} ({})", file_stem, counter),
+        };
+        let new_path = parent.join(new_name);
+        if !new_path.exists() {
+            return new_path;
+        }
+        counter += 1;
+    }
+}
+
+fn prompt_user_action(file_name: &str) -> std::io::Result<String> {
+    print!("File '{}' already exists. [r]ename, [s]kip, or [o]verwrite? ", file_name);
+    io::stdout().flush()?;
+
+    let mut response = String::new();
+    io::stdin().read_line(&mut response)?;
+
+    Ok(response.trim().to_lowercase())
+}
+
+fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy) -> std::io::Result<()> {
     // Create destination directory if it doesn't exist
     fs::create_dir_all(destination)?;
 
     if let Some(file_name) = source.file_name() {
         let dest_path = destination.join(file_name);
-        fs::rename(source, dest_path)?;
-        println!("Moved: {} -> {}", source.display(), destination.display());
+
+        // Handle collision if file exists
+        let final_dest = if dest_path.exists() {
+            match strategy {
+                CollisionStrategy::Rename => {
+                    let new_path = find_available_filename(&dest_path);
+                    println!("Collision detected: renaming to {}", new_path.file_name().unwrap().to_str().unwrap());
+                    new_path
+                }
+                CollisionStrategy::Skip => {
+                    println!("Skipped: {} (already exists)", dest_path.display());
+                    return Ok(());
+                }
+                CollisionStrategy::Prompt => {
+                    let action = prompt_user_action(file_name.to_str().unwrap())?;
+                    match action.as_str() {
+                        "r" | "rename" => {
+                            let new_path = find_available_filename(&dest_path);
+                            println!("Renaming to {}", new_path.file_name().unwrap().to_str().unwrap());
+                            new_path
+                        }
+                        "s" | "skip" => {
+                            println!("Skipped: {}", file_name.to_str().unwrap());
+                            return Ok(());
+                        }
+                        "o" | "overwrite" => {
+                            println!("Overwriting: {}", file_name.to_str().unwrap());
+                            dest_path
+                        }
+                        _ => {
+                            println!("Invalid input. Skipping file.");
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        } else {
+            dest_path
+        };
+
+        fs::rename(source, &final_dest)?;
+        println!("Moved: {} -> {}", source.display(), final_dest.display());
     }
 
     Ok(())
@@ -96,7 +184,7 @@ fn organize_files(args: Args) -> std::io::Result<()> {
                         "Audio" => &audio_dir,
                         _ => continue,
                     };
-                    move_file(&path, dest_dir)?;
+                    move_file(&path, dest_dir, &args.collision)?;
                     break;
                 }
             }
