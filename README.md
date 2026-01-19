@@ -31,17 +31,23 @@ The binary will be available at `target/release/kondo` or installed to `~/.cargo
 
 ## Quick Start
 
-1. Create a config file (see [Configuration](#configuration))
+1. Create a config file at `~/.config/kondo/config.toml` (see [Configuration](#configuration))
 2. Run Kondo with dry-run first:
 
 ```bash
-kondo --source ~/Downloads --config config.toml --dry-run
+kondo --source ~/Downloads --dry-run
 ```
 
 3. If everything looks good, run it for real:
 
 ```bash
-kondo --source ~/Downloads --config config.toml
+kondo --source ~/Downloads
+```
+
+Alternatively, you can specify a custom config file location:
+
+```bash
+kondo --source ~/Downloads --config /path/to/config.toml
 ```
 
 ## Usage
@@ -53,7 +59,7 @@ kondo --source <SOURCE_DIR> --config <CONFIG_FILE> [OPTIONS]
 ### Arguments
 
 - `--source, -s <DIR>` - Directory to organize (supports `~/` paths)
-- `--config, -c <FILE>` - Path to configuration file (supports `~/` paths)
+- `--config, -c <FILE>` - Path to configuration file (optional, defaults to `~/.config/kondo/config.toml`, supports `~/` paths)
 
 ### Options
 

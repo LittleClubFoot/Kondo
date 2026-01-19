@@ -33,9 +33,9 @@ struct Args {
     #[arg(short, long)]
     source: String,
 
-    /// Path to the config.toml file
+    /// Path to the config.toml file (defaults to ~/.config/kondo/config.toml)
     #[arg(short, long)]
-    config: String,
+    config: Option<String>,
 
     /// How to handle file name collisions
     #[arg(long, value_enum, default_value = "rename")]
@@ -268,6 +268,24 @@ fn expand_tilde(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+fn get_default_config_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|config_dir| config_dir.join("kondo").join("config.toml"))
+}
+
+fn resolve_config_path(config_arg: Option<String>) -> std::io::Result<PathBuf> {
+    match config_arg {
+        Some(path) => Ok(expand_tilde(&path)),
+        None => {
+            get_default_config_path().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Could not determine config directory. Please specify config path with --config",
+                )
+            })
+        }
+    }
+}
+
 fn get_extension(file_path: &Path) -> Option<String> {
     file_path
         .extension()
@@ -277,7 +295,7 @@ fn get_extension(file_path: &Path) -> Option<String> {
 
 fn organize_files(args: Args) -> std::io::Result<()> {
     let source_dir = expand_tilde(&args.source);
-    let config_path = expand_tilde(&args.config);
+    let config_path = resolve_config_path(args.config)?;
 
     if args.dry_run {
         println!("=== DRY RUN MODE: No files will be moved ===\n");
