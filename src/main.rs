@@ -133,6 +133,15 @@ fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy) ->
     Ok(())
 }
 
+fn expand_tilde(path: &str) -> PathBuf {
+    if path.starts_with("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(&path[2..]);
+        }
+    }
+    PathBuf::from(path)
+}
+
 fn get_extension(file_path: &Path) -> Option<String> {
     file_path
         .extension()
@@ -141,8 +150,8 @@ fn get_extension(file_path: &Path) -> Option<String> {
 }
 
 fn organize_files(args: Args) -> std::io::Result<()> {
-    let source_dir = PathBuf::from(args.source);
-    let config_path = PathBuf::from(args.config);
+    let source_dir = expand_tilde(&args.source);
+    let config_path = expand_tilde(&args.config);
 
     // Read and parse the config.toml file
     let config_content = fs::read_to_string(config_path)?;
@@ -151,9 +160,9 @@ fn organize_files(args: Args) -> std::io::Result<()> {
 
     // Extract output directories from the config
     let directories = config.get("directories").expect("Missing 'directories' section in config");
-    let images_dir = PathBuf::from(directories.get("images").expect("Missing 'images' key in config").as_str().unwrap());
-    let documents_dir = PathBuf::from(directories.get("documents").expect("Missing 'documents' key in config").as_str().unwrap());
-    let audio_dir = PathBuf::from(directories.get("audio").expect("Missing 'audio' key in config").as_str().unwrap());
+    let images_dir = expand_tilde(directories.get("images").expect("Missing 'images' key in config").as_str().unwrap());
+    let documents_dir = expand_tilde(directories.get("documents").expect("Missing 'documents' key in config").as_str().unwrap());
+    let audio_dir = expand_tilde(directories.get("audio").expect("Missing 'audio' key in config").as_str().unwrap());
 
     let mappings = get_file_type_mappings();
 
