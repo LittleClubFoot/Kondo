@@ -147,8 +147,23 @@ fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy, dr
         if dry_run {
             println!("[DRY RUN] Would move: {} -> {}", source.display(), final_dest.display());
         } else {
-            fs::rename(source, &final_dest)?;
-            println!("Moved: {} -> {}", source.display(), final_dest.display());
+            // Try rename first (fast for same filesystem)
+            match fs::rename(source, &final_dest) {
+                Ok(_) => {
+                    println!("Moved: {} -> {}", source.display(), final_dest.display());
+                }
+                Err(e) => {
+                    // If rename fails (e.g., cross-filesystem), fall back to copy + remove
+                    if e.raw_os_error() == Some(18) || e.kind() == std::io::ErrorKind::CrossesDevices {
+                        fs::copy(source, &final_dest)?;
+                        fs::remove_file(source)?;
+                        println!("Moved (cross-filesystem): {} -> {}", source.display(), final_dest.display());
+                    } else {
+                        // If it's a different error, propagate it
+                        return Err(e);
+                    }
+                }
+            }
         }
     }
 
