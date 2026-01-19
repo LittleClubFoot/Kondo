@@ -1,5 +1,6 @@
+use chrono::Utc;
 use clap::{Parser, ValueEnum};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -46,6 +47,45 @@ impl Statistics {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct FileOperation {
+    timestamp: String,
+    source: String,
+    destination: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BackupManifest {
+    created_at: String,
+    operations: Vec<FileOperation>,
+}
+
+impl BackupManifest {
+    fn new() -> Self {
+        Self {
+            created_at: Utc::now().to_rfc3339(),
+            operations: Vec::new(),
+        }
+    }
+
+    fn add_operation(&mut self, source: &Path, destination: &Path) {
+        self.operations.push(FileOperation {
+            timestamp: Utc::now().to_rfc3339(),
+            source: source.display().to_string(),
+            destination: destination.display().to_string(),
+        });
+    }
+
+    fn save(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let json = serde_json::to_string_pretty(self)?;
+        fs::write(path, json)?;
+        Ok(())
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about = "File organizer by type")]
 struct Args {
@@ -68,6 +108,10 @@ struct Args {
     /// Process subdirectories recursively
     #[arg(short, long)]
     recursive: bool,
+
+    /// Create backup manifest for undo capability
+    #[arg(short, long)]
+    backup: bool,
 }
 
 impl Config {
@@ -198,7 +242,7 @@ fn prompt_user_action(file_name: &str) -> std::io::Result<String> {
 }
 
 enum MoveResult {
-    Moved,
+    Moved(PathBuf), // Contains final destination path
     Skipped,
 }
 
@@ -234,7 +278,7 @@ fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy, dr
                 CollisionStrategy::Prompt => {
                     if dry_run {
                         println!("[DRY RUN] File exists, would prompt: {}", file_name.to_str().unwrap());
-                        return Ok(MoveResult::Moved);
+                        return Ok(MoveResult::Moved(dest_path.clone()));
                     }
                     let action = prompt_user_action(file_name.to_str().unwrap())?;
                     match action.as_str() {
@@ -283,9 +327,11 @@ fn move_file(source: &Path, destination: &Path, strategy: &CollisionStrategy, dr
                 }
             }
         }
+
+        return Ok(MoveResult::Moved(final_dest));
     }
 
-    Ok(MoveResult::Moved)
+    Ok(MoveResult::Moved(source.to_path_buf()))
 }
 
 fn expand_tilde(path: &str) -> PathBuf {
@@ -342,6 +388,11 @@ fn organize_files(args: Args) -> std::io::Result<()> {
     }
 
     let mut stats = Statistics::default();
+    let mut manifest = if args.backup {
+        Some(BackupManifest::new())
+    } else {
+        None
+    };
 
     // Process files based on recursive flag
     if args.recursive {
@@ -365,7 +416,12 @@ fn organize_files(args: Args) -> std::io::Result<()> {
                 if let Some(category) = config.find_category_for_extension(&extension) {
                     let dest_dir = expand_tilde(&category.destination);
                     match move_file(path, &dest_dir, &args.collision, args.dry_run)? {
-                        MoveResult::Moved => stats.moved += 1,
+                        MoveResult::Moved(final_dest) => {
+                            stats.moved += 1;
+                            if let Some(ref mut m) = manifest {
+                                m.add_operation(path, &final_dest);
+                            }
+                        }
                         MoveResult::Skipped => stats.skipped += 1,
                     }
                 } else {
@@ -393,7 +449,12 @@ fn organize_files(args: Args) -> std::io::Result<()> {
                 if let Some(category) = config.find_category_for_extension(&extension) {
                     let dest_dir = expand_tilde(&category.destination);
                     match move_file(&path, &dest_dir, &args.collision, args.dry_run)? {
-                        MoveResult::Moved => stats.moved += 1,
+                        MoveResult::Moved(final_dest) => {
+                            stats.moved += 1;
+                            if let Some(ref mut m) = manifest {
+                                m.add_operation(&path, &final_dest);
+                            }
+                        }
                         MoveResult::Skipped => stats.skipped += 1,
                     }
                 } else {
@@ -402,6 +463,24 @@ fn organize_files(args: Args) -> std::io::Result<()> {
             } else {
                 stats.no_category += 1;
             }
+        }
+    }
+
+    // Save backup manifest if enabled
+    if let Some(manifest) = manifest {
+        if !manifest.operations.is_empty() && !args.dry_run {
+            let manifest_path = dirs::data_local_dir()
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "Could not determine local data directory",
+                    )
+                })?
+                .join("kondo")
+                .join(format!("backup-{}.json", Utc::now().format("%Y%m%d-%H%M%S")));
+
+            manifest.save(&manifest_path)?;
+            println!("\nBackup manifest saved to: {}", manifest_path.display());
         }
     }
 

@@ -65,6 +65,7 @@ kondo --source <SOURCE_DIR> --config <CONFIG_FILE> [OPTIONS]
 
 - `--dry-run` - Preview what would happen without moving files
 - `--recursive, -r` - Process subdirectories recursively
+- `--backup, -b` - Create backup manifest for undo capability
 - `--collision <STRATEGY>` - How to handle file name collisions (default: `rename`)
   - `rename` - Automatically append counter (file.txt → file (1).txt)
   - `skip` - Don't move files that already exist
@@ -98,6 +99,13 @@ kondo -s ~/Downloads -c ~/config.toml --collision prompt
 ```bash
 kondo -s ~/Downloads --recursive
 ```
+
+**Create a backup manifest for undo capability:**
+```bash
+kondo -s ~/Downloads --backup
+```
+
+The backup manifest is saved to `~/.local/share/kondo/backup-YYYYMMDD-HHMMSS.json` and contains all file operations, allowing you to reverse them if needed.
 
 ## Configuration
 
