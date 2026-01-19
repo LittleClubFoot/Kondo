@@ -3,6 +3,7 @@ use serde::Deserialize;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum CollisionStrategy {
@@ -63,6 +64,10 @@ struct Args {
     /// Preview changes without moving files
     #[arg(long)]
     dry_run: bool,
+
+    /// Process subdirectories recursively
+    #[arg(short, long)]
+    recursive: bool,
 }
 
 impl Config {
@@ -338,31 +343,65 @@ fn organize_files(args: Args) -> std::io::Result<()> {
 
     let mut stats = Statistics::default();
 
-    // Process all files in source directory
-    for entry in fs::read_dir(source_dir)? {
-        let entry = entry?;
-        let path = entry.path();
+    // Process files based on recursive flag
+    if args.recursive {
+        // Use walkdir for recursive traversal
+        for entry in WalkDir::new(&source_dir)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
 
-        // Skip directories
-        if path.is_dir() {
-            continue;
-        }
+            // Skip directories
+            if path.is_dir() {
+                continue;
+            }
 
-        stats.total_files += 1;
+            stats.total_files += 1;
 
-        // Get file extension and find matching category
-        if let Some(extension) = get_extension(&path) {
-            if let Some(category) = config.find_category_for_extension(&extension) {
-                let dest_dir = expand_tilde(&category.destination);
-                match move_file(&path, &dest_dir, &args.collision, args.dry_run)? {
-                    MoveResult::Moved => stats.moved += 1,
-                    MoveResult::Skipped => stats.skipped += 1,
+            // Get file extension and find matching category
+            if let Some(extension) = get_extension(path) {
+                if let Some(category) = config.find_category_for_extension(&extension) {
+                    let dest_dir = expand_tilde(&category.destination);
+                    match move_file(path, &dest_dir, &args.collision, args.dry_run)? {
+                        MoveResult::Moved => stats.moved += 1,
+                        MoveResult::Skipped => stats.skipped += 1,
+                    }
+                } else {
+                    stats.no_category += 1;
                 }
             } else {
                 stats.no_category += 1;
             }
-        } else {
-            stats.no_category += 1;
+        }
+    } else {
+        // Process only top-level directory
+        for entry in fs::read_dir(&source_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            // Skip directories
+            if path.is_dir() {
+                continue;
+            }
+
+            stats.total_files += 1;
+
+            // Get file extension and find matching category
+            if let Some(extension) = get_extension(&path) {
+                if let Some(category) = config.find_category_for_extension(&extension) {
+                    let dest_dir = expand_tilde(&category.destination);
+                    match move_file(&path, &dest_dir, &args.collision, args.dry_run)? {
+                        MoveResult::Moved => stats.moved += 1,
+                        MoveResult::Skipped => stats.skipped += 1,
+                    }
+                } else {
+                    stats.no_category += 1;
+                }
+            } else {
+                stats.no_category += 1;
+            }
         }
     }
 

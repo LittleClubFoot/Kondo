@@ -64,6 +64,7 @@ kondo --source <SOURCE_DIR> --config <CONFIG_FILE> [OPTIONS]
 ### Options
 
 - `--dry-run` - Preview what would happen without moving files
+- `--recursive, -r` - Process subdirectories recursively
 - `--collision <STRATEGY>` - How to handle file name collisions (default: `rename`)
   - `rename` - Automatically append counter (file.txt → file (1).txt)
   - `skip` - Don't move files that already exist
@@ -91,6 +92,11 @@ kondo -s ~/Downloads -c ~/config.toml --collision skip
 **Interactively decide for each collision:**
 ```bash
 kondo -s ~/Downloads -c ~/config.toml --collision prompt
+```
+
+**Organize files recursively in all subdirectories:**
+```bash
+kondo -s ~/Downloads --recursive
 ```
 
 ## Configuration
@@ -202,7 +208,7 @@ Automatically handles moving files across different partitions or drives using a
 
 ## Limitations
 
-- Only processes files in the top-level directory (not recursive)
+- Processes only top-level directory by default (use `--recursive` for subdirectories)
 - Directories are skipped
 - Symlinks are not followed
 - Files without extensions are ignored
