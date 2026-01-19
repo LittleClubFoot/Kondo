@@ -66,6 +66,7 @@ kondo --source <SOURCE_DIR> --config <CONFIG_FILE> [OPTIONS]
 - `--dry-run` - Preview what would happen without moving files
 - `--recursive, -r` - Process subdirectories recursively
 - `--backup, -b` - Create backup manifest for undo capability
+- `--follow-symlinks` - Follow symbolic links (disabled by default for security)
 - `--collision <STRATEGY>` - How to handle file name collisions (default: `rename`)
   - `rename` - Automatically append counter (file.txt → file (1).txt)
   - `skip` - Don't move files that already exist
@@ -214,11 +215,18 @@ Always test with `--dry-run` first to see what would happen:
 ### Cross-Filesystem Support
 Automatically handles moving files across different partitions or drives using a safe copy+delete approach when needed.
 
+### Security Features
+
+- **Path Validation** - Prevents directory traversal attacks by validating all destination paths
+- **Symlink Protection** - Symlinks are skipped by default to prevent following malicious links
+- **Absolute Paths** - All destination paths are validated to be absolute after expansion
+- **Opt-in Symlinks** - Use `--follow-symlinks` to explicitly enable symlink following
+
 ## Limitations
 
 - Processes only top-level directory by default (use `--recursive` for subdirectories)
 - Directories are skipped
-- Symlinks are not followed
+- Symlinks are skipped by default (use `--follow-symlinks` to enable)
 - Files without extensions are ignored
 
 ## Contributing

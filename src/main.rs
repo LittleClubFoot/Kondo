@@ -112,6 +112,10 @@ struct Args {
     /// Create backup manifest for undo capability
     #[arg(short, long)]
     backup: bool,
+
+    /// Follow symbolic links (disabled by default for security)
+    #[arg(long)]
+    follow_symlinks: bool,
 }
 
 impl Config {
@@ -368,6 +372,49 @@ fn get_extension(file_path: &Path) -> Option<String> {
         .map(|s| s.to_lowercase())
 }
 
+fn is_safe_path(path: &Path) -> bool {
+    // Check for directory traversal attempts
+    for component in path.components() {
+        if component == std::path::Component::ParentDir {
+            return false;
+        }
+    }
+    true
+}
+
+fn validate_destination(dest: &Path) -> std::io::Result<()> {
+    // Ensure destination doesn't contain suspicious patterns
+    if !is_safe_path(dest) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("Unsafe destination path detected: {}", dest.display()),
+        ));
+    }
+
+    // Canonicalize and check if path is absolute after expansion
+    let expanded = dest.canonicalize().or_else(|_| {
+        // If path doesn't exist yet, try to canonicalize parent
+        if let Some(parent) = dest.parent() {
+            parent.canonicalize().map(|p| p.join(dest.file_name().unwrap()))
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Cannot validate destination path",
+            ))
+        }
+    })?;
+
+    // Ensure the path is absolute
+    if !expanded.is_absolute() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("Destination must be an absolute path: {}", dest.display()),
+        ));
+    }
+
+    Ok(())
+}
+
 fn organize_files(args: Args) -> std::io::Result<()> {
     let source_dir = expand_tilde(&args.source);
     let config_path = resolve_config_path(args.config)?;
@@ -394,11 +441,19 @@ fn organize_files(args: Args) -> std::io::Result<()> {
         None
     };
 
+    // Validate all category destinations
+    for category in &config.categories {
+        let dest = expand_tilde(&category.destination);
+        if let Err(e) = validate_destination(&dest) {
+            eprintln!("Warning: Invalid destination for category '{}': {}", category.name, e);
+        }
+    }
+
     // Process files based on recursive flag
     if args.recursive {
         // Use walkdir for recursive traversal
         for entry in WalkDir::new(&source_dir)
-            .follow_links(false)
+            .follow_links(args.follow_symlinks)
             .into_iter()
             .filter_map(|e| e.ok())
         {
@@ -406,6 +461,11 @@ fn organize_files(args: Args) -> std::io::Result<()> {
 
             // Skip directories
             if path.is_dir() {
+                continue;
+            }
+
+            // Skip symlinks unless explicitly allowed
+            if !args.follow_symlinks && path.is_symlink() {
                 continue;
             }
 
@@ -439,6 +499,11 @@ fn organize_files(args: Args) -> std::io::Result<()> {
 
             // Skip directories
             if path.is_dir() {
+                continue;
+            }
+
+            // Skip symlinks unless explicitly allowed
+            if !args.follow_symlinks && path.is_symlink() {
                 continue;
             }
 
