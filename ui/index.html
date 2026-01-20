@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kondo - File Organizer</title>
+    <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <h1>🧹 Kondo</h1>
+            <p class="subtitle">Organize your files with joy</p>
+        </header>
+
+        <main class="main">
+            <!-- Tab Navigation -->
+            <div class="tabs">
+                <button class="tab active" data-tab="home">Home</button>
+                <button class="tab" data-tab="organize">Organize</button>
+                <button class="tab" data-tab="config">Config</button>
+            </div>
+
+            <!-- Home Tab -->
+            <div class="tab-content active" id="home-tab">
+                <div class="home-view">
+                    <div class="drop-zone" id="drop-zone">
+                        <div class="drop-zone-content">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                            <h2>Select a Folder to Organize</h2>
+                            <p>Click to browse or drag and drop</p>
+                            <button class="btn btn-primary" id="select-folder-btn">
+                                Select Folder
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="selected-folder" id="selected-folder" style="display: none;">
+                        <h3>Selected Folder:</h3>
+                        <p class="folder-path" id="folder-path"></p>
+                        <button class="btn btn-primary" id="scan-btn">
+                            Scan Folder
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Organize Tab -->
+            <div class="tab-content" id="organize-tab">
+                <div class="organize-view">
+                    <div class="organize-header">
+                        <div class="folder-info">
+                            <label>Source:</label>
+                            <span id="org-folder-path">No folder selected</span>
+                        </div>
+                        <button class="btn btn-secondary" id="change-folder-btn">Change</button>
+                    </div>
+
+                    <div class="scan-results" id="scan-results" style="display: none;">
+                        <h3>Files Found: <span id="total-files">0</span></h3>
+
+                        <div class="categories" id="categories"></div>
+
+                        <div class="actions">
+                            <button class="btn btn-secondary" id="dry-run-btn">
+                                Dry Run
+                            </button>
+                            <button class="btn btn-primary" id="organize-btn">
+                                Organize Files
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="empty-state" id="empty-state">
+                        <p>Select a folder from the Home tab to get started</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Config Tab -->
+            <div class="tab-content" id="config-tab">
+                <div class="config-view">
+                    <div class="config-header">
+                        <h3>Configuration</h3>
+                        <button class="btn btn-secondary" id="load-config-btn">
+                            Load Config
+                        </button>
+                    </div>
+
+                    <div class="config-content" id="config-content">
+                        <p>Loading configuration...</p>
+                    </div>
+
+                    <div class="config-actions">
+                        <button class="btn btn-secondary" id="save-config-btn">
+                            Save Config
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <div class="status-bar" id="status-bar">
+            Ready
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>
